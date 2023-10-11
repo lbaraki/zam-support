@@ -9,10 +9,7 @@
 # LOCALS & SETUP ============================================================================
 
   # Libraries
-  library(glitr)
-  library(glamr)
-  library(gisr)
-  library(gophr)
+  library(gagglr)
   library(tidyverse)
   library(scales)
   library(sf)
@@ -52,14 +49,14 @@
           )
         ) %>%
         gophr::clean_indicator() %>%
-        group_by(indicator, fiscal_year, snu1, psnu, ...) %>% #change grouping as needed (psnu, sitename)
+        group_by(indicator, fiscal_year, ...) %>% #change grouping as needed (psnu, sitename) -- use the function ... for this action
         summarise(across(starts_with("qtr"), sum, na.rm = TRUE), 
                   .groups = "drop") %>%
         reshape_msd(include_type = FALSE) %>%
         pivot_wider(
           names_from = indicator,
           names_glue = "{tolower(indicator)}"
-        ) %>%
+        ) %>% 
         #arrange(desc(period))%>% #FY23Q3 at top 
         group_by(...) %>% 
         mutate( #add in calculations 
@@ -72,7 +69,12 @@
       return(df)
     }  
   
-
+  # Limit labels - use this on the x-axis to create some space
+  # returns a tick on every nth space given (2 - will skip 1 tick)
+    every_nth = function(n) {
+      return(function(x) {x[c(TRUE, rep(FALSE, n - 1))]})
+    }  
+    
 # LOAD DATA ============================================================================  
 
     #district level 
@@ -97,12 +99,13 @@
     #district level 
     
     df_vl_peds <- df_msd %>%
-      create_vl_df() %>% 
-      filter(str_detect(period, "23"))
+      create_vl_df(snu1, psnu) %>% 
+      filter(str_detect(period, "23|22")) %>% 
+      arrange(psnu, period)
     
     #site level 
     df_vl_peds_sites <- df_site %>% 
-      create_vl_df() %>% 
+      create_vl_df(psnu, sitename) %>% 
       filter(str_detect(period, "23"))
     
 # VIZ ============================================================================
@@ -137,10 +140,10 @@
                   row_group.padding = px(1),
                   row_group.font.weight = "bold") %>% 
       gtExtras::gt_hulk_col_numeric(vlc,
-                                    domain = c(0,.85),
+                                    domain = c(0, 1),
                                     trim = TRUE) %>% 
-      gtExtras::gt_theme_nytimes()  
-    #tab_header(title = "22 DISTRICTS WITH PEDS VLC < 50% IN FY23Q2") %>% 
+      gtExtras::gt_theme_nytimes()  %>% 
+    tab_header(title = "22 DISTRICTS WITH PEDS VLC < 50% IN FY23Q2")  
     #gtsave("Images/PEDS_VLC_by_q2.png")
     
     
@@ -151,16 +154,21 @@
     #group vlc by districts (psnu)
     #add district labels 
     
+    
+  # Recommend limiting these to the Provincial level, then facet on PSNUS  
+  # Can functionalize this and then loop over a list of snu1s
+    
     df_vl_peds %>%
+      filter(snu1 == "Central Province") %>% 
       #filter(str_detect(period, "Q3", negate = T)) %>% 
       mutate(value_label = case_when(period == max(period) ~ paste(percent(vlc), psnu), 
                                      TRUE ~ percent(vlc))) %>% 
       # filter(snu1 %in% c("Northern Province",
       #                   "Copperbelt Province",
       #                  "Central Province")) %>% 
-      ggplot(aes(x = period, y = vlc, group = psnu))+
-      geom_line()+
-      geom_point()+
+      ggplot(aes(x = period, y = vlc, group = psnu)) +
+      geom_line() +
+      geom_point() +
       geom_text(aes(label = percent(vlc, 1)),
                 size = 7/.pt,
                 vjust = -0.25,
@@ -172,7 +180,7 @@
       #force = 4
       #                      ) +
       #geom_label(aes(label = psnu))+
-      facet_wrap(~snu1, scales = "free")+
+      facet_wrap(~psnu) +
       scale_x_discrete()+ 
       labs(title = "CHANGE IN PEDS VLC ACROSS FY23", 
            caption = glue("{msd_source_path}\n VLC = TX_PVLS/TX_CURR [2 periods prior]")
@@ -180,10 +188,12 @@
       #coord_cartesian(ylim=c(0, 0.75))+
       scale_y_continuous( 
         labels = scales::percent,
-        limits = c(0,.85),
+        limits = c(0, 1),
         breaks = seq(0, 1, 0.25)
       )+
-      si_style_xline()
+      # Add a few spaces between breaks to get cleaner x axis
+      scale_x_discrete(breaks = every_nth(n = 2)) +
+      si_style_xline(facet_space = 0.99)
     #gtsave("Images/PEDS_VLC_FY23.png")  
 
 # SPINDOWN ============================================================================
